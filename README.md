@@ -84,8 +84,7 @@ supabase/schema.sql      Tables, RLS, realtime, vote function
   → swipe home → lock your phone. Music and queue auto-advance will keep
   running. The fullscreen step is required — PiP without it won't survive
   the lock. Plug into a charger for long drives. Android untested.
-- **Search**: Use the official YouTube Data API
-  (key + quota required).
+- **Search**: Utilising ytmusicapi to access YouTube Music. Be wary of the API breaking.
 - **Playback**: Songs play through the YouTube IFrame
   player, which keeps you within YouTube's intended embed usage. Don't
   paywall playback itself — YouTube's API terms prohibit charging for
