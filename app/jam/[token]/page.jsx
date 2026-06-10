@@ -178,6 +178,9 @@ export default function GuestPage() {
 
       <div className="card">
         <h2>Add a song</h2>
+        <p className="muted" style={{ fontSize: "0.85rem", margin: "-4px 0 12px" }}>
+        Adding as <strong style={{ color: "var(--text)" }}>{getIdentity()}</strong>
+        </p>
         <div className="search-row">
           <input
             className="input"
