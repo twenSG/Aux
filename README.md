@@ -80,6 +80,10 @@ supabase/schema.sql      Tables, RLS, realtime, vote function
 - **Browser autoplay**: the host must click "Start the music" once — a
   user gesture is required before browsers allow audio. After that,
   tracks auto-advance.
+- **Car mode (iOS):** Play a track → tap fullscreen → tap the PiP button
+  → swipe home → lock your phone. Music and queue auto-advance will keep
+  running. The fullscreen step is required — PiP without it won't survive
+  the lock. Plug into a charger for long drives. Android untested.
 - **Search is unofficial**: `ytmusic-api` scrapes the YT Music web
   client and can break without notice. `app/api/search/route.js` is the
   one file to swap if you move to the official YouTube Data API
