@@ -84,17 +84,12 @@ supabase/schema.sql      Tables, RLS, realtime, vote function
   → swipe home → lock your phone. Music and queue auto-advance will keep
   running. The fullscreen step is required — PiP without it won't survive
   the lock. Plug into a charger for long drives. Android untested.
-- **Search is unofficial**: `ytmusic-api` scrapes the YT Music web
-  client and can break without notice. `app/api/search/route.js` is the
-  one file to swap if you move to the official YouTube Data API
+- **Search**: Use the official YouTube Data API
   (key + quota required).
-- **Playback is official**: songs play through the YouTube IFrame
+- **Playback**: songs play through the YouTube IFrame
   player, which keeps you within YouTube's intended embed usage. Don't
   paywall playback itself — YouTube's API terms prohibit charging for
   access to their content.
-- **Cleanup**: rooms live forever in this starter. A simple cron (Vercel
-  Cron or Supabase scheduled function) deleting rooms older than ~24h is
-  a good first addition.
 
 ## Ideas for v2
 
