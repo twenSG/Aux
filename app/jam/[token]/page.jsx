@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { getSupabase } from "@/lib/supabase";
 
 const NAMES = [
   "Purple Walrus",
@@ -30,13 +29,16 @@ function getIdentity() {
 
 export default function GuestPage() {
   const { token } = useParams();
+
   const [room, setRoom] = useState(null);
   const [notFound, setNotFound] = useState(false);
+
   const [tracks, setTracks] = useState([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
+
   const [votedIds, setVotedIds] = useState(new Set());
   const debounceRef = useRef(null);
 
@@ -53,15 +55,33 @@ export default function GuestPage() {
     setTimeout(() => setToast(null), 2200);
   }
 
-  const fetchTracks = useCallback(async (roomId) => {
-    const { data } = await getSupabase()
-      .from("tracks")
-      .select("*")
-      .eq("room_id", roomId)
-      .neq("status", "played")
-      .order("created_at", { ascending: true });
-    setTracks(data || []);
-  }, []);
+  const fetchRoomAndTracks = useCallback(async () => {
+    if (!token) return;
+
+    setNotFound(false);
+
+    // Room
+    const roomRes = await fetch(
+      `/api/guest/room?guestToken=${encodeURIComponent(token)}`
+    );
+    if (!roomRes.ok) {
+      setNotFound(true);
+      return;
+    }
+    const roomData = await roomRes.json();
+    setRoom(roomData.room);
+
+    // Tracks
+    const tracksRes = await fetch(
+      `/api/guest/tracks?guestToken=${encodeURIComponent(token)}`
+    );
+    if (!tracksRes.ok) {
+      setTracks([]);
+      return;
+    }
+    const tracksData = await tracksRes.json();
+    setTracks(tracksData.tracks || []);
+  }, [token]);
 
   useEffect(() => {
     setVotedIds(
@@ -70,35 +90,8 @@ export default function GuestPage() {
   }, []);
 
   useEffect(() => {
-    let channel;
-    (async () => {
-      const { data: r } = await getSupabase()
-        .from("rooms")
-        .select("id, name")
-        .eq("guest_token", token)
-        .single();
-      if (!r) {
-        setNotFound(true);
-        return;
-      }
-      setRoom(r);
-      fetchTracks(r.id);
-      channel = getSupabase()
-        .channel(`room-${r.id}-guest`)
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "tracks",
-            filter: `room_id=eq.${r.id}`,
-          },
-          () => fetchTracks(r.id)
-        )
-        .subscribe();
-    })();
-    return () => channel && getSupabase().removeChannel(channel);
-  }, [token, fetchTracks]);
+    fetchRoomAndTracks();
+  }, [fetchRoomAndTracks]);
 
   // Debounced search
   useEffect(() => {
@@ -134,11 +127,14 @@ export default function GuestPage() {
         addedBy: getIdentity(),
       }),
     });
+
     const data = await res.json();
     if (res.ok) {
       showToast(`Added “${r.title}”`);
       setQuery("");
       setResults([]);
+      // refresh queue
+      fetchRoomAndTracks();
     } else {
       showToast(data.error || "Couldn't add that one.");
     }
@@ -146,14 +142,19 @@ export default function GuestPage() {
 
   async function vote(trackId) {
     if (votedIds.has(trackId)) return;
+
     const next = new Set(votedIds).add(trackId);
     setVotedIds(next);
     localStorage.setItem("aux-voted", JSON.stringify([...next]));
-    await fetch("/api/vote", {
+
+    const res = await fetch("/api/vote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guestToken: token, trackId }),
     });
+
+    // refresh vote counts after write
+    if (res.ok) fetchRoomAndTracks();
   }
 
   if (notFound) {
@@ -178,9 +179,14 @@ export default function GuestPage() {
 
       <div className="card">
         <h2>Add a song</h2>
-        <p className="muted" style={{ fontSize: "0.85rem", margin: "-4px 0 12px" }}>
-        Adding as <strong style={{ color: "var(--text)" }}>{getIdentity()}</strong>
+        <p
+          className="muted"
+          style={{ fontSize: "0.85rem", margin: "-4px 0 12px" }}
+        >
+          Adding as{" "}
+          <strong style={{ color: "var(--text)" }}>{getIdentity()}</strong>
         </p>
+
         <div className="search-row">
           <input
             className="input"
@@ -190,7 +196,9 @@ export default function GuestPage() {
             inputMode="search"
           />
         </div>
+
         {searching && <p className="muted">Searching…</p>}
+
         {results.length > 0 && (
           <ul className="results">
             {results.map((r) => (
@@ -227,6 +235,7 @@ export default function GuestPage() {
 
       <div className="card section-gap">
         <h2>Up next · {queue.length}</h2>
+
         {queue.length === 0 ? (
           <p className="empty">Queue&apos;s empty. You know what to do.</p>
         ) : (
@@ -240,6 +249,7 @@ export default function GuestPage() {
                     {t.artist} · {t.added_by}
                   </div>
                 </div>
+
                 <button
                   className={`vote ${votedIds.has(t.id) ? "voted" : ""}`}
                   onClick={() => vote(t.id)}
