@@ -293,6 +293,11 @@ export default function HostPage() {
               joins on the old one. Bookmark this page&apos;s URL to get back
               in as host.
             </p>
+            <p className="muted" style={{ fontSize: "0.88rem", margin: "10px 0 0" }}>
+              <strong style={{ color: "var(--text)" }}>Car mode (iOS):</strong>{" "}
+              play a track → fullscreen → PiP button → swipe home → lock phone.
+              The fullscreen step is required. Plug in a charger for long drives.
+            </p>
           </div>
         </div>
       </div>
