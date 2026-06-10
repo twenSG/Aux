@@ -86,7 +86,7 @@ supabase/schema.sql      Tables, RLS, realtime, vote function
   the lock. Plug into a charger for long drives. Android untested.
 - **Search**: Use the official YouTube Data API
   (key + quota required).
-- **Playback**: songs play through the YouTube IFrame
+- **Playback**: Songs play through the YouTube IFrame
   player, which keeps you within YouTube's intended embed usage. Don't
   paywall playback itself — YouTube's API terms prohibit charging for
   access to their content.
