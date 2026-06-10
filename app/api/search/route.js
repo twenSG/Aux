@@ -1,60 +1,44 @@
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
+import YTMusic from "ytmusic-api";
 
-// Initialize the YouTube Data API client
-const youtube = google.youtube({
-  version: "v3",
-  auth: process.env.YOUTUBE_API_KEY,
-});
+// ytmusic-api scrapes the YouTube Music web client. It needs no API key,
+// but being unofficial it can break if YouTube changes their internals —
+// this route is the single place to swap in another search backend
+// (e.g. the official YouTube Data API) if that ever happens.
 
-function formatDuration(isoDuration) {
-  // YouTube Data API returns duration in ISO 8601 format (e.g., PT1M30S)
-  const match = isoDuration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-  if (!match) return null;
-  
-  const hours = (parseInt(match[1]) || 0);
-  const minutes = (parseInt(match[2]) || 0) + (hours * 60);
-  const seconds = (parseInt(match[3]) || 0);
-  
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+let ytmusicPromise = null;
+function getYTMusic() {
+  if (!ytmusicPromise) {
+    const yt = new YTMusic();
+    ytmusicPromise = yt.initialize().then(() => yt);
+  }
+  return ytmusicPromise;
+}
+
+function formatDuration(seconds) {
+  if (!seconds && seconds !== 0) return null;
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") || "").trim();
-  
   if (q.length < 2) return NextResponse.json({ results: [] });
 
   try {
-    // 1. Search for videos
-    const searchResponse = await youtube.search.list({
-      q: q,
-      part: "snippet",
-      maxResults: 12,
-      type: "video",
-      videoCategoryId: "10", // Category 10 is 'Music'
-    });
-
-    const videoIds = searchResponse.data.items.map((item) => item.id.videoId).join(",");
-
-    // 2. Fetch details (including contentDetails for duration)
-    const detailsResponse = await youtube.videos.list({
-      part: "snippet,contentDetails",
-      id: videoIds,
-    });
-
-    // 3. Format results to match your expected frontend structure
-    const results = detailsResponse.data.items.map((s) => ({
-      videoId: s.id,
-      title: s.snippet.title,
-      artist: s.snippet.channelTitle, // Official API doesn't separate artist/title clearly
-      duration: formatDuration(s.contentDetails.duration),
-      thumbnail: s.snippet.thumbnails?.high?.url || null,
+    const yt = await getYTMusic();
+    const songs = await yt.searchSongs(q);
+    const results = songs.slice(0, 12).map((s) => ({
+      videoId: s.videoId,
+      title: s.name,
+      artist: s.artist?.name || "",
+      duration: formatDuration(s.duration),
+      thumbnail: s.thumbnails?.[s.thumbnails.length - 1]?.url || null,
     }));
-
     return NextResponse.json({ results });
   } catch (err) {
-    console.error("YouTube API Error:", err);
     return NextResponse.json(
       { error: "Search is unavailable right now.", detail: String(err) },
       { status: 502 }
