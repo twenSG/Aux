@@ -16,7 +16,7 @@ const NAMES = [
 ];
 
 function getIdentity() {
-  if (typeof window === "undefined") return "Someone";
+  if (typeof window === "undefined") return { name: "Someone", deviceId: null };
   let name = localStorage.getItem("aux-name");
   if (!name) {
     name =
@@ -25,7 +25,12 @@ function getIdentity() {
       Math.floor(Math.random() * 90 + 10);
     localStorage.setItem("aux-name", name);
   }
-  return name;
+  let deviceId = localStorage.getItem("aux-device-id");
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem("aux-device-id", deviceId);
+  }
+  return { name, deviceId };
 }
 
 export default function GuestPage() {
@@ -38,7 +43,15 @@ export default function GuestPage() {
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
   const [votedIds, setVotedIds] = useState(new Set());
+  const [identity, setIdentity] = useState({ name: "Someone", deviceId: null });
   const debounceRef = useRef(null);
+
+  useEffect(() => {
+    setIdentity(getIdentity());
+    setVotedIds(
+      new Set(JSON.parse(localStorage.getItem("aux-voted") || "[]"))
+    );
+  }, []);
 
   const nowPlaying = tracks.find((t) => t.status === "playing") || null;
   const queue = tracks
@@ -47,6 +60,9 @@ export default function GuestPage() {
       (a, b) =>
         b.votes - a.votes || new Date(a.created_at) - new Date(b.created_at)
     );
+  const played = tracks
+    .filter((t) => t.status === "played")
+    .reverse();
 
   function showToast(msg) {
     setToast(msg);
@@ -58,15 +74,8 @@ export default function GuestPage() {
       .from("tracks")
       .select("*")
       .eq("room_id", roomId)
-      .neq("status", "played")
       .order("created_at", { ascending: true });
     setTracks(data || []);
-  }, []);
-
-  useEffect(() => {
-    setVotedIds(
-      new Set(JSON.parse(localStorage.getItem("aux-voted") || "[]"))
-    );
   }, []);
 
   useEffect(() => {
@@ -131,16 +140,35 @@ export default function GuestPage() {
         artist: r.artist,
         thumbnail: r.thumbnail,
         duration: r.duration,
-        addedBy: getIdentity(),
+        addedBy: identity.name,
+        deviceId: identity.deviceId,
       }),
     });
     const data = await res.json();
     if (res.ok) {
-      showToast(`Added “${r.title}”`);
+      showToast(`Added "${r.title}"`);
       setQuery("");
       setResults([]);
     } else {
       showToast(data.error || "Couldn't add that one.");
+    }
+  }
+
+  async function removeTrack(trackId, title) {
+    const res = await fetch("/api/tracks/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guestToken: token,
+        trackId,
+        deviceId: identity.deviceId,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Removed "${title}"`);
+    } else {
+      showToast(data.error || "Couldn't remove that one.");
     }
   }
 
@@ -179,7 +207,7 @@ export default function GuestPage() {
       <div className="card">
         <h2>Add a song</h2>
         <p className="muted" style={{ fontSize: "0.85rem", margin: "-4px 0 12px" }}>
-        Adding as <strong style={{ color: "var(--text)" }}>{getIdentity()}</strong>
+          Adding as <strong style={{ color: "var(--text)" }}>{identity.name}</strong>
         </p>
         <div className="search-row">
           <input
@@ -248,11 +276,37 @@ export default function GuestPage() {
                   <span className="arrow">▲</span>
                   <span className="count">{t.votes}</span>
                 </button>
+                {t.device_id === identity.deviceId && (
+                  <button
+                    className="btn-quiet"
+                    onClick={() => removeTrack(t.id, t.title)}
+                    aria-label={`Remove ${t.title}`}
+                  >
+                    ✕
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {played.length > 0 && (
+        <div className="card section-gap">
+          <h2>Played · {played.length}</h2>
+          <ul className="queue">
+            {played.map((t) => (
+              <li className="queue-item" key={t.id} style={{ opacity: 0.5 }}>
+                {t.thumbnail && <img src={t.thumbnail} alt="" />}
+                <div className="qi-main">
+                  <div className="qi-title">{t.title}</div>
+                  <div className="qi-sub">{t.artist} · {t.added_by}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </main>

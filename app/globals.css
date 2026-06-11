@@ -450,6 +450,63 @@ button {
   color: var(--muted);
 }
 
+/* ---- Auth bar ---- */
+
+.auth-bar {
+  display: flex;
+  align-items: center;
+}
+
+.auth-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* ---- Premium nudge ---- */
+
+.premium-nudge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 16px 0 0;
+  max-width: 560px;
+}
+
+.nudge-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.nudge-link {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nudge-link:hover {
+  color: var(--accent);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .queue-item,
   .card,

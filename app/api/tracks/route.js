@@ -3,8 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
-  const { guestToken, videoId, title, artist, thumbnail, duration, addedBy } =
-    body;
+  const { guestToken, videoId, title, artist, thumbnail, duration, addedBy, deviceId } = body;
 
   if (!guestToken || !videoId || !title) {
     return NextResponse.json({ error: "Missing fields." }, { status: 400 });
@@ -43,6 +42,7 @@ export async function POST(request) {
     thumbnail: thumbnail || null,
     duration: duration || null,
     added_by: (addedBy || "Someone").toString().slice(0, 40),
+    device_id: deviceId || null,
   });
 
   if (error) {

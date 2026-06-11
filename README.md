@@ -30,7 +30,26 @@ songs. No app, no login.
    - `anon` public key
    - `service_role` key (keep this secret)
 
-### 2. Local dev
+### 2. Google OAuth (optional but recommended)
+
+Enables host login for YouTube Premium passthrough and future Pro features.
+
+**Google Cloud Console:**
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a project (or reuse one)
+2. APIs & Services → OAuth consent screen → External → fill in app name + your email
+3. APIs & Services → Credentials → Create Credentials → OAuth client ID → Web application
+4. Under **Authorised redirect URIs** add:
+   `https://your-project.supabase.co/auth/v1/callback`
+5. Copy the **Client ID** and **Client Secret**
+
+**Supabase:**
+1. Dashboard → Authentication → Providers → Google → Enable
+2. Paste the Client ID and Client Secret
+3. Copy the **Callback URL** shown — it should match what you added in Google Cloud
+
+That's it. The `/auth/callback` route in the app handles the rest.
+
+### 3. Local dev
 
 ```bash
 npm install
@@ -41,7 +60,7 @@ npm run dev
 Open http://localhost:3000, start a jam, and open the guest link in a
 second browser/phone to test.
 
-### 3. Deploy to Vercel
+### 4. Deploy to Vercel
 
 1. Push this repo to GitHub.
 2. Import it in Vercel (framework auto-detected: Next.js).
@@ -84,11 +103,17 @@ supabase/schema.sql      Tables, RLS, realtime, vote function
   → swipe home → lock your phone. Music and queue auto-advance will keep
   running. The fullscreen step is required — PiP without it won't survive
   the lock. Plug into a charger for long drives. Android untested.
-- **Search**: Utilising ytmusicapi to access YouTube Music. Be wary of the API breaking.
-- **Playback**: Songs play through the YouTube IFrame
+- **Search is unofficial**: `ytmusic-api` scrapes the YT Music web
+  client and can break without notice. `app/api/search/route.js` is the
+  one file to swap if you move to the official YouTube Data API
+  (key + quota required).
+- **Playback is official**: songs play through the YouTube IFrame
   player, which keeps you within YouTube's intended embed usage. Don't
   paywall playback itself — YouTube's API terms prohibit charging for
   access to their content.
+- **Cleanup**: rooms live forever in this starter. A simple cron (Vercel
+  Cron or Supabase scheduled function) deleting rooms older than ~24h is
+  a good first addition.
 
 ## Ideas for v2
 
