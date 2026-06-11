@@ -1,123 +1,308 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { getUser, getSession, signInWithGoogle, signOut } from "@/lib/auth";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import { QRCodeCanvas } from "qrcode.react";
+import { getSupabase } from "@/lib/supabase";
 
-function getFirstName(user) {
-  const full = user?.user_metadata?.name || user?.email || "";
-  return full.split(" ")[0];
-}
+export default function HostPage() {
+  const { token } = useParams();
+  const [room, setRoom] = useState(null);
+  const [tracks, setTracks] = useState([]);
+  const [started, setStarted] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [notFound, setNotFound] = useState(false);
 
-export default function Landing() {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
-  const [userLoading, setUserLoading] = useState(true);
-  const router = useRouter();
+  const playerRef = useRef(null);
+  const playerReadyRef = useRef(false);
+  const advancingRef = useRef(false);
+  const roomRef = useRef(null);
 
-  useEffect(() => {
-    getUser()
-      .then(setUser)
-      .finally(() => setUserLoading(false));
+  const nowPlaying = tracks.find((t) => t.status === "playing") || null;
+  const queue = tracks
+    .filter((t) => t.status === "queued")
+    .sort(
+      (a, b) =>
+        b.votes - a.votes || new Date(a.created_at) - new Date(b.created_at)
+    );
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  const fetchTracks = useCallback(async (roomId) => {
+    const { data } = await getSupabase()
+      .from("tracks")
+      .select("*")
+      .eq("room_id", roomId)
+      .neq("status", "played")
+      .order("created_at", { ascending: true });
+    setTracks(data || []);
   }, []);
 
-  const defaultRoomName = user ? `${getFirstName(user)}'s Jam` : "Jam";
-  const placeholder = user ? `${getFirstName(user)}'s Jam` : "Name your jam (optional)";
-
-  async function createRoom() {
-    setBusy(true);
-    setError(null);
-    try {
-      const session = await getSession();
-      const headers = { "Content-Type": "application/json" };
-      if (session?.access_token) {
-        headers["Authorization"] = `Bearer ${session.access_token}`;
+  // Load room + subscribe to queue changes
+  useEffect(() => {
+    let channel;
+    (async () => {
+      const { data: r } = await getSupabase()
+        .from("rooms")
+        .select("*")
+        .eq("host_token", token)
+        .single();
+      if (!r) {
+        setNotFound(true);
+        return;
       }
-      const res = await fetch("/api/rooms", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ name: name.trim() || defaultRoomName }),
+      setRoom(r);
+      roomRef.current = r;
+      fetchTracks(r.id);
+      channel = getSupabase()
+        .channel(`room-${r.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tracks",
+            filter: `room_id=eq.${r.id}`,
+          },
+          () => fetchTracks(r.id)
+        )
+        .subscribe();
+    })();
+    return () => channel && getSupabase().removeChannel(channel);
+  }, [token, fetchTracks]);
+
+  async function hostAction(action, trackId) {
+    const res = await fetch("/api/host", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostToken: token, action, trackId }),
+    });
+    return res.json();
+  }
+
+  const playNext = useCallback(async () => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    try {
+      const data = await hostAction("play_next");
+      if (data.track && playerReadyRef.current) {
+        playerRef.current.loadVideoById(data.track.video_id);
+      }
+      if (roomRef.current) fetchTracks(roomRef.current.id);
+    } finally {
+      advancingRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, fetchTracks]);
+
+  // YouTube IFrame Player
+  useEffect(() => {
+    function createPlayer() {
+      playerRef.current = new window.YT.Player("yt-player", {
+        width: "100%",
+        height: "100%",
+        playerVars: { playsinline: 1, rel: 0 },
+        events: {
+          onReady: () => {
+            playerReadyRef.current = true;
+          },
+          onStateChange: (e) => {
+            if (e.data === window.YT.PlayerState.ENDED) playNext();
+          },
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not create the room.");
-      router.push(`/host/${data.hostToken}`);
-    } catch (err) {
-      setError(err.message);
-      setBusy(false);
+    }
+    if (window.YT && window.YT.Player) {
+      createPlayer();
+    } else {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.body.appendChild(tag);
+      window.onYouTubeIframeAPIReady = createPlayer;
+    }
+    return () => {
+      playerReadyRef.current = false;
+      if (playerRef.current?.destroy) playerRef.current.destroy();
+    };
+  }, [playNext]);
+
+  // If we're live and idle but songs arrive, advance automatically
+  useEffect(() => {
+    if (started && !nowPlaying && queue.length > 0) playNext();
+  }, [started, nowPlaying, queue.length, playNext]);
+
+  async function startMusic() {
+    setStarted(true);
+    // Resume a track that was already marked playing (e.g. after refresh)
+    if (nowPlaying && playerReadyRef.current) {
+      playerRef.current.loadVideoById(nowPlaying.video_id);
+    } else {
+      playNext();
     }
   }
 
+  async function regenerateLink() {
+    const data = await hostAction("regenerate_guest_token");
+    if (data.guestToken) {
+      setRoom((r) => ({ ...r, guest_token: data.guestToken }));
+      showToast("New link created — the old one is dead.");
+    }
+  }
+
+  if (notFound) {
+    return (
+      <main className="shell">
+        <p className="empty">
+          This host link doesn&apos;t open any room. Start a new jam from the
+          home page.
+        </p>
+      </main>
+    );
+  }
+
+  const guestUrl =
+    room && typeof window !== "undefined"
+      ? `${window.location.origin}/jam/${room.guest_token}`
+      : "";
+
   return (
     <main className="shell">
-      <div className="brand" style={{ justifyContent: "space-between" }}>
+      <div className="brand">
         <span className="brand-mark">
           Aux<span className="dot">.</span>
         </span>
-        {!userLoading && (
-          <div className="auth-bar">
-            {user ? (
-              <div className="auth-user">
-                <span className="muted" style={{ fontSize: "0.85rem" }}>
-                  {user.user_metadata?.name || user.email}
-                </span>
-                <button
-                  className="btn-quiet"
-                  onClick={async () => {
-                    await signOut();
-                    setUser(null);
-                  }}
-                >
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <span className="brand-room">{room ? room.name : "loading…"}</span>
       </div>
 
-      {!userLoading && !user && (
-        <div className="premium-nudge">
-          <span className="nudge-icon">★</span>
-          Signing in unlocks your YouTube Premium for ad-free playback.{" "}
-          <button className="nudge-link" onClick={signInWithGoogle}>
-            Sign in with Google
-          </button>
-        </div>
-      )}
+      <div className="grid-host">
+        <div>
+          <div className="card">
+            <h2>Now playing</h2>
+            <div className="player-frame">
+              <div id="yt-player" />
+            </div>
 
-      <section className="hero">
-        <h1>
-          One speaker.
-          <br />
-          Everyone&apos;s <em>queue</em>.
-        </h1>
-        <p>
-          Start a jam, plug this device into the speaker, and share the link.
-          Friends add and upvote songs from their phones — no app, no login.
-          Playback runs on YouTube.
-        </p>
+            {nowPlaying ? (
+              <div className="now-playing">
+                {nowPlaying.thumbnail && (
+                  <img src={nowPlaying.thumbnail} alt="" />
+                )}
+                <div>
+                  <div className="np-title">{nowPlaying.title}</div>
+                  <div className="np-artist">
+                    {nowPlaying.artist}
+                    {nowPlaying.added_by ? ` · added by ${nowPlaying.added_by}` : ""}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="np-meta section-gap">
+                {queue.length > 0
+                  ? "Songs are waiting."
+                  : "Queue is empty — share the link below."}
+              </p>
+            )}
 
-        <div className="create-row">
-          <input
-            className="input"
-            placeholder={placeholder}
-            value={name}
-            maxLength={60}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !busy && createRoom()}
-          />
-          <button className="btn" onClick={createRoom} disabled={busy}>
-            {busy ? "Starting…" : "Start a jam"}
-          </button>
+            <div className="ticket-actions" style={{ paddingLeft: 0 }}>
+              {!started ? (
+                <button
+                  className="btn"
+                  onClick={startMusic}
+                  disabled={queue.length === 0 && !nowPlaying}
+                >
+                  Start the music
+                </button>
+              ) : (
+                <button className="btn-quiet" onClick={playNext}>
+                  Skip ▸
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="card section-gap">
+            <h2>Up next · {queue.length}</h2>
+            {queue.length === 0 ? (
+              <p className="empty">Nothing queued yet.</p>
+            ) : (
+              <ul className="queue">
+                {queue.map((t) => (
+                  <li className="queue-item" key={t.id}>
+                    {t.thumbnail && <img src={t.thumbnail} alt="" />}
+                    <div className="qi-main">
+                      <div className="qi-title">{t.title}</div>
+                      <div className="qi-sub">
+                        {t.artist}
+                        {t.duration ? ` · ${t.duration}` : ""} · {t.added_by}
+                      </div>
+                    </div>
+                    <span className="vote" aria-label={`${t.votes} votes`}>
+                      <span className="arrow">▲</span>
+                      <span className="count">{t.votes}</span>
+                    </span>
+                    <button
+                      className="btn-quiet"
+                      onClick={() => hostAction("remove", t.id)}
+                      aria-label={`Remove ${t.title}`}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
-        {error && (
-          <p className="muted" role="alert">
-            {error}
-          </p>
-        )}
-      </section>
+
+        <div>
+          <div className="ticket">
+            <div className="ticket-top">
+              <div className="ticket-qr">
+                {guestUrl && <QRCodeCanvas value={guestUrl} size={108} />}
+              </div>
+              <div className="ticket-copy">
+                <div className="label">Scan to join</div>
+                <div className="url">{guestUrl}</div>
+              </div>
+            </div>
+            <div className="ticket-divider" />
+            <div className="ticket-actions">
+              <button
+                className="btn-quiet"
+                onClick={() => {
+                  navigator.clipboard.writeText(guestUrl);
+                  showToast("Link copied.");
+                }}
+              >
+                Copy link
+              </button>
+              <button className="btn-quiet" onClick={regenerateLink}>
+                Regenerate link
+              </button>
+            </div>
+          </div>
+
+          <div className="card section-gap">
+            <h2>Host notes</h2>
+            <p className="muted" style={{ fontSize: "0.88rem", margin: 0 }}>
+              Keep this tab open — it&apos;s the speaker. Anyone with the link
+              can add and upvote songs. Regenerating the link blocks new
+              joins on the old one. Bookmark this page&apos;s URL to get back
+              in as host.
+            </p>
+            <p className="muted" style={{ fontSize: "0.88rem", margin: "10px 0 0" }}>
+              <strong style={{ color: "var(--text)" }}>Car mode (iOS):</strong>{" "}
+              play a track → fullscreen → PiP button → swipe home → lock phone.
+              The fullscreen step is required. Plug in a charger for long drives.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {toast && <div className="toast">{toast}</div>}
     </main>
   );
 }
