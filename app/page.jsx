@@ -83,7 +83,7 @@ export default function Landing() {
       {!userLoading && !user && (
         <div className="premium-nudge">
           <span className="nudge-icon">★</span>
-          Signing in unlocks your YouTube Premium for ad-free playback.{" "}
+          Signing in allows for ad-free playback if you have YouTube Premium. Pro features will be added soon.{" "}
           <button className="nudge-link" onClick={signInWithGoogle}>
             Sign in with Google
           </button>
