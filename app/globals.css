@@ -421,6 +421,14 @@ button {
   gap: 6px;
 }
 
+.results .queue-item {
+  min-width: 0;
+}
+
+.results .btn-quiet {
+  flex-shrink: 0;
+}
+
 .added-flash {
   color: var(--ok);
   font-size: 0.85rem;
