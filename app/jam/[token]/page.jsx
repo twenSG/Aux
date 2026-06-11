@@ -155,6 +155,8 @@ export default function GuestPage() {
   }
 
   async function removeTrack(trackId, title) {
+    // Optimistic update — remove immediately from local state
+    setTracks((prev) => prev.filter((t) => t.id !== trackId));
     const res = await fetch("/api/tracks/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -168,6 +170,8 @@ export default function GuestPage() {
     if (res.ok) {
       showToast(`Removed "${title}"`);
     } else {
+      // Revert on failure
+      if (room) fetchTracks(room.id);
       showToast(data.error || "Couldn't remove that one.");
     }
   }
