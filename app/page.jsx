@@ -72,10 +72,6 @@ export default function Landing() {
                   Sign out
                 </button>
               </div>
-            ) : (
-              <button className="btn-quiet" onClick={signInWithGoogle}>
-                Sign in with Google
-              </button>
             )}
           </div>
         )}
