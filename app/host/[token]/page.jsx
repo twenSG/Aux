@@ -18,6 +18,12 @@ export default function HostPage() {
   const [nameInput, setNameInput] = useState("");
   const nameInputRef = useRef(null);
 
+  // Host search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef(null);
+
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const advancingRef = useRef(false);
@@ -85,6 +91,37 @@ export default function HostPage() {
     if (editingName) nameInputRef.current?.focus();
   }, [editingName]);
 
+  // Debounced host search
+  useEffect(() => {
+    clearTimeout(searchDebounceRef.current);
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
+        const data = await res.json();
+        setSearchResults(data.results || []);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [searchQuery]);
+
+  async function addTrack(r) {
+    const data = await hostAction("add_track", null, r);
+    if (data.ok) {
+      showToast(`Added "${r.title}"`);
+      setSearchQuery("");
+      setSearchResults([]);
+    } else {
+      showToast(data.error || "Couldn't add that one.");
+    }
+  }
+
   async function saveName() {
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === room.name) {
@@ -104,11 +141,11 @@ export default function HostPage() {
     setEditingName(false);
   }
 
-  async function hostAction(action, trackId) {
+  async function hostAction(action, trackId, track) {
     const res = await fetch("/api/host", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hostToken: token, action, trackId }),
+      body: JSON.stringify({ hostToken: token, action, trackId, track }),
     });
     return res.json();
   }
@@ -341,6 +378,37 @@ export default function HostPage() {
                 Regenerate link
               </button>
             </div>
+          </div>
+
+          <div className="card section-gap">
+            <h2>Add a song</h2>
+            <div className="search-row">
+              <input
+                className="input"
+                placeholder="Search YouTube Music…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            {searching && <p className="muted">Searching…</p>}
+            {searchResults.length > 0 && (
+              <ul className="results">
+                {searchResults.map((r) => (
+                  <li className="queue-item" key={r.videoId}>
+                    {r.thumbnail && <img src={r.thumbnail} alt="" />}
+                    <div className="qi-main">
+                      <div className="qi-title">{r.title}</div>
+                      <div className="qi-sub">
+                        {r.artist}{r.duration ? ` · ${r.duration}` : ""}
+                      </div>
+                    </div>
+                    <button className="btn-quiet" onClick={() => addTrack(r)}>
+                      + Add
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="card section-gap">

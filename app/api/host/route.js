@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { getServiceSupabase, makeToken } from "@/lib/supabase";
 
 // All host actions, authenticated by the unguessable host token.
-// Actions: play_next | remove | regenerate_guest_token
+// Actions: play_next | remove | regenerate_guest_token | add_track
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
-  const { hostToken, action, trackId } = body;
+  const { hostToken, action, trackId, track } = body;
 
   if (!hostToken || !action) {
     return NextResponse.json({ error: "Missing fields." }, { status: 400 });
@@ -22,6 +22,41 @@ export async function POST(request) {
 
   if (!room) {
     return NextResponse.json({ error: "Room not found." }, { status: 404 });
+  }
+
+  if (action === "add_track") {
+    if (!track?.videoId || !track?.title) {
+      return NextResponse.json({ error: "Missing track fields." }, { status: 400 });
+    }
+
+    // Skip duplicates still queued or playing
+    const { data: existing } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("room_id", room.id)
+      .eq("video_id", track.videoId)
+      .in("status", ["queued", "playing"])
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json({ error: "Already in the queue." }, { status: 409 });
+    }
+
+    const { error } = await supabase.from("tracks").insert({
+      room_id: room.id,
+      video_id: track.videoId,
+      title: track.title.toString().slice(0, 200),
+      artist: (track.artist || "").toString().slice(0, 200),
+      thumbnail: track.thumbnail || null,
+      duration: track.duration || null,
+      added_by: "Host",
+      device_id: null,
+    });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
   }
 
   if (action === "remove") {
