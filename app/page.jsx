@@ -9,18 +9,53 @@ function getFirstName(user) {
   return full.split(" ")[0];
 }
 
+function saveHostTokenLocally(hostToken, roomName) {
+  localStorage.setItem("aux-host-token", hostToken);
+  localStorage.setItem("aux-host-room-name", roomName);
+  localStorage.setItem("aux-host-saved-at", Date.now().toString());
+}
+
+function getLocalHostRoom() {
+  const hostToken = localStorage.getItem("aux-host-token");
+  const roomName = localStorage.getItem("aux-host-room-name");
+  const savedAt = parseInt(localStorage.getItem("aux-host-saved-at") || "0");
+  // Only valid within 24h (matches cron window)
+  if (!hostToken || Date.now() - savedAt > 24 * 60 * 60 * 1000) return null;
+  return { hostToken, roomName };
+}
+
 export default function Landing() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
   const [userLoading, setUserLoading] = useState(true);
+  const [activeRoom, setActiveRoom] = useState(null);
   const router = useRouter();
 
   useEffect(() => {
-    getUser()
-      .then(setUser)
-      .finally(() => setUserLoading(false));
+    (async () => {
+      const u = await getUser();
+      setUser(u);
+
+      if (u) {
+        // Logged-in: check DB for active room
+        const session = await getSession();
+        const res = await fetch("/api/rooms/active", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.room) setActiveRoom(data.room);
+        }
+      } else {
+        // Anonymous: check localStorage
+        const local = getLocalHostRoom();
+        if (local) setActiveRoom({ hostToken: local.hostToken, name: local.roomName });
+      }
+
+      setUserLoading(false);
+    })();
   }, []);
 
   const defaultRoomName = user ? `${getFirstName(user)}'s Jam` : "Jam";
@@ -42,6 +77,8 @@ export default function Landing() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not create the room.");
+      // Save host token locally for anonymous rejoin
+      saveHostTokenLocally(data.hostToken, data.name);
       router.push(`/host/${data.hostToken}`);
     } catch (err) {
       setError(err.message);
@@ -67,6 +104,7 @@ export default function Landing() {
                   onClick={async () => {
                     await signOut();
                     setUser(null);
+                    setActiveRoom(null);
                   }}
                 >
                   Sign out
@@ -83,6 +121,23 @@ export default function Landing() {
           Signing in unlocks your YouTube Premium for ad-free playback.{" "}
           <button className="nudge-link" onClick={signInWithGoogle}>
             Sign in with Google
+          </button>
+        </div>
+      )}
+
+      {!userLoading && activeRoom && (
+        <div className="rejoin-banner">
+          <div>
+            <div style={{ fontWeight: 700 }}>{activeRoom.name}</div>
+            <div className="muted" style={{ fontSize: "0.85rem" }}>
+              Your jam is still running
+            </div>
+          </div>
+          <button
+            className="btn"
+            onClick={() => router.push(`/host/${activeRoom.host_token || activeRoom.hostToken}`)}
+          >
+            Rejoin →
           </button>
         </div>
       )}
