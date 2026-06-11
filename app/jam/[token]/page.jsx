@@ -181,6 +181,10 @@ export default function GuestPage() {
     const next = new Set(votedIds).add(trackId);
     setVotedIds(next);
     localStorage.setItem("aux-voted", JSON.stringify([...next]));
+    // Optimistic update — increment locally immediately
+    setTracks((prev) =>
+      prev.map((t) => (t.id === trackId ? { ...t, votes: t.votes + 1 } : t))
+    );
     await fetch("/api/vote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
