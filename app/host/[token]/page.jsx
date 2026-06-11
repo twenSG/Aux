@@ -193,6 +193,13 @@ export default function HostPage() {
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.ENDED) playNext();
           },
+          onError: (e) => {
+            // Error codes: 2 invalid id, 5 html5 error, 100 not found,
+            // 101/150 embed not allowed. Skip to next in all cases.
+            console.warn("YouTube player error, skipping:", e.data);
+            showToast("Couldn't play that one — skipping.");
+            playNext();
+          },
         },
       });
     }
@@ -399,6 +406,20 @@ export default function HostPage() {
               >
                 Copy link
               </button>
+              {typeof navigator !== "undefined" && navigator.share && (
+                <button
+                  className="btn-quiet"
+                  onClick={() =>
+                    navigator.share({
+                      title: room?.name || "Aux Jam",
+                      text: "Add songs to the queue →",
+                      url: guestUrl,
+                    })
+                  }
+                >
+                  Share link
+                </button>
+              )}
               <button className="btn-quiet" onClick={regenerateLink}>
                 Regenerate link
               </button>
