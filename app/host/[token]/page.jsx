@@ -74,12 +74,26 @@ export default function HostPage() {
         .on(
           "postgres_changes",
           {
+            event: "DELETE",
+            schema: "public",
+            table: "tracks",
+            filter: `room_id=eq.${r.id}`,
+          },
+          (payload) => {
+            setTracks((prev) => prev.filter((t) => t.id !== payload.old.id));
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
             event: "*",
             schema: "public",
             table: "tracks",
             filter: `room_id=eq.${r.id}`,
           },
-          () => fetchTracks(r.id)
+          (payload) => {
+            if (payload.eventType !== "DELETE") fetchTracks(r.id);
+          }
         )
         .subscribe();
     })();
