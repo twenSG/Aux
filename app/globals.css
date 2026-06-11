@@ -509,6 +509,21 @@ button {
   object-fit: cover;
 }
 
+/* ---- Rejoin banner ---- */
+
+.rejoin-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin: 16px 0 0;
+  max-width: 560px;
+  gap: 16px;
+}
+
 /* ---- Premium nudge ---- */
 
 .premium-nudge {
