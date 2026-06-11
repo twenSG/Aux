@@ -218,7 +218,16 @@ export default function HostPage() {
     }
   }
 
-  if (notFound) {
+  async function removeTrack(trackId) {
+    // Optimistic update — remove immediately from local state
+    setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    const data = await hostAction("remove", trackId);
+    if (!data.ok) {
+      // Revert on failure
+      if (roomRef.current) fetchTracks(roomRef.current.id);
+      showToast("Couldn't remove that track.");
+    }
+  }
     return (
       <main className="shell">
         <p className="empty">
@@ -340,7 +349,7 @@ export default function HostPage() {
                     </span>
                     <button
                       className="btn-quiet"
-                      onClick={() => hostAction("remove", t.id)}
+                      onClick={() => removeTrack(t.id)}
                       aria-label={`Remove ${t.title}`}
                     >
                       ✕
