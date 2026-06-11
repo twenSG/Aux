@@ -4,6 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, getSession, signInWithGoogle, signOut } from "@/lib/auth";
 
+function getFirstName(user) {
+  const full = user?.user_metadata?.name || user?.email || "";
+  return full.split(" ")[0];
+}
+
 export default function Landing() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,6 +23,9 @@ export default function Landing() {
       .finally(() => setUserLoading(false));
   }, []);
 
+  const defaultRoomName = user ? `${getFirstName(user)}'s Jam` : "Jam";
+  const placeholder = user ? `${getFirstName(user)}'s Jam` : "Name your jam (optional)";
+
   async function createRoom() {
     setBusy(true);
     setError(null);
@@ -30,7 +38,7 @@ export default function Landing() {
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: name || "Jam" }),
+        body: JSON.stringify({ name: name.trim() || defaultRoomName }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not create the room.");
@@ -51,13 +59,6 @@ export default function Landing() {
           <div className="auth-bar">
             {user ? (
               <div className="auth-user">
-                {user.user_metadata?.avatar_url && (
-                  <img
-                    src={user.user_metadata.avatar_url}
-                    alt=""
-                    className="avatar"
-                  />
-                )}
                 <span className="muted" style={{ fontSize: "0.85rem" }}>
                   {user.user_metadata?.name || user.email}
                 </span>
@@ -83,7 +84,7 @@ export default function Landing() {
       {!userLoading && !user && (
         <div className="premium-nudge">
           <span className="nudge-icon">★</span>
-          Signing in allows for ad-free playback if you have YouTube Premium. Pro features will be added soon.{" "}
+          Signing in unlocks your YouTube Premium for ad-free playback.{" "}
           <button className="nudge-link" onClick={signInWithGoogle}>
             Sign in with Google
           </button>
@@ -105,7 +106,7 @@ export default function Landing() {
         <div className="create-row">
           <input
             className="input"
-            placeholder="Name your jam (optional)"
+            placeholder={placeholder}
             value={name}
             maxLength={60}
             onChange={(e) => setName(e.target.value)}

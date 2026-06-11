@@ -13,6 +13,11 @@ export default function HostPage() {
   const [toast, setToast] = useState(null);
   const [notFound, setNotFound] = useState(false);
 
+  // Inline rename state
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useRef(null);
+
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const advancingRef = useRef(false);
@@ -55,6 +60,7 @@ export default function HostPage() {
         return;
       }
       setRoom(r);
+      setNameInput(r.name);
       roomRef.current = r;
       fetchTracks(r.id);
       channel = getSupabase()
@@ -73,6 +79,30 @@ export default function HostPage() {
     })();
     return () => channel && getSupabase().removeChannel(channel);
   }, [token, fetchTracks]);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingName) nameInputRef.current?.focus();
+  }, [editingName]);
+
+  async function saveName() {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === room.name) {
+      setEditingName(false);
+      setNameInput(room.name);
+      return;
+    }
+    const res = await fetch("/api/rooms/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostToken: token, name: trimmed }),
+    });
+    if (res.ok) {
+      setRoom((r) => ({ ...r, name: trimmed }));
+      showToast("Room renamed.");
+    }
+    setEditingName(false);
+  }
 
   async function hostAction(action, trackId) {
     const res = await fetch("/api/host", {
@@ -129,14 +159,13 @@ export default function HostPage() {
     };
   }, [playNext]);
 
-  // If we're live and idle but songs arrive, advance automatically
+  // If live and idle but songs arrive, advance automatically
   useEffect(() => {
     if (started && !nowPlaying && queue.length > 0) playNext();
   }, [started, nowPlaying, queue.length, playNext]);
 
   async function startMusic() {
     setStarted(true);
-    // Resume a track that was already marked playing (e.g. after refresh)
     if (nowPlaying && playerReadyRef.current) {
       playerRef.current.loadVideoById(nowPlaying.video_id);
     } else {
@@ -174,7 +203,36 @@ export default function HostPage() {
         <span className="brand-mark">
           Aux<span className="dot">.</span>
         </span>
-        <span className="brand-room">{room ? room.name : "loading…"}</span>
+
+        {/* Inline editable room name */}
+        {room && (
+          editingName ? (
+            <input
+              ref={nameInputRef}
+              className="room-name-input"
+              value={nameInput}
+              maxLength={60}
+              onChange={(e) => setNameInput(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveName();
+                if (e.key === "Escape") {
+                  setEditingName(false);
+                  setNameInput(room.name);
+                }
+              }}
+            />
+          ) : (
+            <button
+              className="room-name-btn"
+              onClick={() => setEditingName(true)}
+              title="Click to rename"
+            >
+              {room.name}
+              <span className="edit-icon">✎</span>
+            </button>
+          )
+        )}
       </div>
 
       <div className="grid-host">
