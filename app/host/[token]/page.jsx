@@ -228,6 +228,8 @@ export default function HostPage() {
       showToast("Couldn't remove that track.");
     }
   }
+
+  if (notFound) {
     return (
       <main className="shell">
         <p className="empty">
