@@ -3,26 +3,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const NAMES = [
-  "Purple Walrus",
-  "Disco Otter",
-  "Velvet Moose",
-  "Neon Heron",
-  "Mellow Lynx",
-  "Cosmic Badger",
-  "Golden Tapir",
-  "Quiet Falcon",
+  "Purple Walrus", "Disco Otter", "Velvet Moose", "Neon Heron",
+  "Mellow Lynx", "Cosmic Badger", "Golden Tapir", "Quiet Falcon",
 ];
 
 function getIdentity() {
   if (typeof window === "undefined") return { name: "Someone", deviceId: null };
   let name = localStorage.getItem("aux-name");
   if (!name) {
-    name =
-      NAMES[Math.floor(Math.random() * NAMES.length)] +
-      " " +
-      Math.floor(Math.random() * 90 + 10);
+    name = NAMES[Math.floor(Math.random() * NAMES.length)] + " " + Math.floor(Math.random() * 90 + 10);
     localStorage.setItem("aux-name", name);
   }
   let deviceId = localStorage.getItem("aux-device-id");
@@ -31,6 +37,41 @@ function getIdentity() {
     localStorage.setItem("aux-device-id", deviceId);
   }
   return { name, deviceId };
+}
+
+function SortableTrack({ track, onRemove, deviceId }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: track.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const isOwn = track.device_id === deviceId;
+
+  return (
+    <li ref={setNodeRef} style={style} className="queue-item">
+      <span className="drag-handle" {...attributes} {...listeners} aria-label="Drag to reorder">
+        ⠿
+      </span>
+      {track.thumbnail && <img src={track.thumbnail} alt="" />}
+      <div className="qi-main">
+        <div className="qi-title">{track.title}</div>
+        <div className="qi-sub">{track.artist} · {track.added_by}</div>
+      </div>
+      {isOwn && (
+        <button
+          className="btn-quiet"
+          onClick={() => onRemove(track.id, track.title)}
+          aria-label={`Remove ${track.title}`}
+        >
+          ✕
+        </button>
+      )}
+    </li>
+  );
 }
 
 export default function GuestPage() {
@@ -42,27 +83,17 @@ export default function GuestPage() {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
-  const [votedIds, setVotedIds] = useState(new Set());
   const [identity, setIdentity] = useState({ name: "Someone", deviceId: null });
   const debounceRef = useRef(null);
+  const reorderDebounceRef = useRef(null);
 
-  useEffect(() => {
-    setIdentity(getIdentity());
-    setVotedIds(
-      new Set(JSON.parse(localStorage.getItem("aux-voted") || "[]"))
-    );
-  }, []);
+  useEffect(() => { setIdentity(getIdentity()); }, []);
 
   const nowPlaying = tracks.find((t) => t.status === "playing") || null;
   const queue = tracks
     .filter((t) => t.status === "queued")
-    .sort(
-      (a, b) =>
-        b.votes - a.votes || new Date(a.created_at) - new Date(b.created_at)
-    );
-  const played = tracks
-    .filter((t) => t.status === "played")
-    .reverse();
+    .sort((a, b) => a.position - b.position || new Date(a.created_at) - new Date(b.created_at));
+  const played = tracks.filter((t) => t.status === "played").reverse();
 
   function showToast(msg) {
     setToast(msg);
@@ -74,6 +105,7 @@ export default function GuestPage() {
       .from("tracks")
       .select("*")
       .eq("room_id", roomId)
+      .order("position", { ascending: true })
       .order("created_at", { ascending: true });
     setTracks(data || []);
   }, []);
@@ -86,45 +118,38 @@ export default function GuestPage() {
         .select("id, name")
         .eq("guest_token", token)
         .single();
-      if (!r) {
-        setNotFound(true);
-        return;
-      }
+      if (!r) { setNotFound(true); return; }
       setRoom(r);
       fetchTracks(r.id);
       channel = getSupabase()
         .channel(`room-${r.id}-guest`)
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "tracks",
-            filter: `room_id=eq.${r.id}`,
-          },
-          () => fetchTracks(r.id)
-        )
+        .on("postgres_changes", {
+          event: "DELETE", schema: "public", table: "tracks",
+          filter: `room_id=eq.${r.id}`,
+        }, (payload) => {
+          setTracks((prev) => prev.filter((t) => t.id !== payload.old.id));
+        })
+        .on("postgres_changes", {
+          event: "*", schema: "public", table: "tracks",
+          filter: `room_id=eq.${r.id}`,
+        }, (payload) => {
+          if (payload.eventType !== "DELETE") fetchTracks(r.id);
+        })
         .subscribe();
     })();
     return () => channel && getSupabase().removeChannel(channel);
   }, [token, fetchTracks]);
 
-  // Debounced search
   useEffect(() => {
     clearTimeout(debounceRef.current);
-    if (query.trim().length < 2) {
-      setResults([]);
-      return;
-    }
+    if (query.trim().length < 2) { setResults([]); return; }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
         setResults(data.results || []);
-      } finally {
-        setSearching(false);
-      }
+      } finally { setSearching(false); }
     }, 350);
     return () => clearTimeout(debounceRef.current);
   }, [query]);
@@ -134,63 +159,63 @@ export default function GuestPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        guestToken: token,
-        videoId: r.videoId,
-        title: r.title,
-        artist: r.artist,
-        thumbnail: r.thumbnail,
-        duration: r.duration,
-        addedBy: identity.name,
-        deviceId: identity.deviceId,
+        guestToken: token, videoId: r.videoId, title: r.title,
+        artist: r.artist, thumbnail: r.thumbnail, duration: r.duration,
+        addedBy: identity.name, deviceId: identity.deviceId,
       }),
     });
     const data = await res.json();
-    if (res.ok) {
-      showToast(`Added "${r.title}"`);
-      setQuery("");
-      setResults([]);
-    } else {
-      showToast(data.error || "Couldn't add that one.");
-    }
+    if (res.ok) { showToast(`Added "${r.title}"`); setQuery(""); setResults([]); }
+    else showToast(data.error || "Couldn't add that one.");
   }
 
   async function removeTrack(trackId, title) {
-    // Optimistic update — remove immediately from local state
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     const res = await fetch("/api/tracks/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        guestToken: token,
-        trackId,
-        deviceId: identity.deviceId,
-      }),
+      body: JSON.stringify({ guestToken: token, trackId, deviceId: identity.deviceId }),
     });
     const data = await res.json();
-    if (res.ok) {
-      showToast(`Removed "${title}"`);
-    } else {
-      // Revert on failure
+    if (!res.ok) {
       if (room) fetchTracks(room.id);
       showToast(data.error || "Couldn't remove that one.");
+    } else {
+      showToast(`Removed "${title}"`);
     }
   }
 
-  async function vote(trackId) {
-    if (votedIds.has(trackId)) return;
-    const next = new Set(votedIds).add(trackId);
-    setVotedIds(next);
-    localStorage.setItem("aux-voted", JSON.stringify([...next]));
-    // Optimistic update — increment locally immediately
-    setTracks((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, votes: t.votes + 1 } : t))
-    );
-    await fetch("/api/vote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ guestToken: token, trackId }),
+  function persistReorder(orderedIds) {
+    clearTimeout(reorderDebounceRef.current);
+    reorderDebounceRef.current = setTimeout(() => {
+      fetch("/api/tracks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, tokenType: "guest", orderedIds }),
+      });
+    }, 500);
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setTracks((prev) => {
+      const queued = prev
+        .filter((t) => t.status === "queued")
+        .sort((a, b) => a.position - b.position || new Date(a.created_at) - new Date(b.created_at));
+      const others = prev.filter((t) => t.status !== "queued");
+      const oldIndex = queued.findIndex((t) => t.id === active.id);
+      const newIndex = queued.findIndex((t) => t.id === over.id);
+      const reordered = arrayMove(queued, oldIndex, newIndex).map((t, i) => ({ ...t, position: i }));
+      persistReorder(reordered.map((t) => t.id));
+      return [...others, ...reordered];
     });
   }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+  );
 
   if (notFound) {
     return (
@@ -206,9 +231,7 @@ export default function GuestPage() {
   return (
     <main className="shell" style={{ maxWidth: 560 }}>
       <div className="brand">
-        <span className="brand-mark">
-          Aux<span className="dot">.</span>
-        </span>
+        <span className="brand-mark">Aux<span className="dot">.</span></span>
         <span className="brand-room">{room ? room.name : "loading…"}</span>
       </div>
 
@@ -234,12 +257,9 @@ export default function GuestPage() {
                 {r.thumbnail && <img src={r.thumbnail} alt="" />}
                 <div className="qi-main">
                   <div className="qi-title">{r.title}</div>
-                  <div className="qi-sub">
-                    {r.artist}
-                    {r.duration ? ` · ${r.duration}` : ""}
-                  </div>
+                  <div className="qi-sub">{r.artist}{r.duration ? ` · ${r.duration}` : ""}</div>
                 </div>
-                <button className="btn-quiet" onClick={() => addTrack(r)}>
+                <button className="btn-quiet" style={{ flexShrink: 0 }} onClick={() => addTrack(r)}>
                   + Add
                 </button>
               </li>
@@ -266,36 +286,20 @@ export default function GuestPage() {
         {queue.length === 0 ? (
           <p className="empty">Queue&apos;s empty. You know what to do.</p>
         ) : (
-          <ul className="queue">
-            {queue.map((t) => (
-              <li className="queue-item" key={t.id}>
-                {t.thumbnail && <img src={t.thumbnail} alt="" />}
-                <div className="qi-main">
-                  <div className="qi-title">{t.title}</div>
-                  <div className="qi-sub">
-                    {t.artist} · {t.added_by}
-                  </div>
-                </div>
-                <button
-                  className={`vote ${votedIds.has(t.id) ? "voted" : ""}`}
-                  onClick={() => vote(t.id)}
-                  aria-label={`Upvote ${t.title}`}
-                >
-                  <span className="arrow">▲</span>
-                  <span className="count">{t.votes}</span>
-                </button>
-                {t.device_id === identity.deviceId && (
-                  <button
-                    className="btn-quiet"
-                    onClick={() => removeTrack(t.id, t.title)}
-                    aria-label={`Remove ${t.title}`}
-                  >
-                    ✕
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+              <ul className="queue">
+                {queue.map((t) => (
+                  <SortableTrack
+                    key={t.id}
+                    track={t}
+                    onRemove={removeTrack}
+                    deviceId={identity.deviceId}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
 
