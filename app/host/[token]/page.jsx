@@ -66,6 +66,9 @@ export default function HostPage() {
   const [nameInput, setNameInput] = useState("");
   const nameInputRef = useRef(null);
 
+  // Room expiry countdown
+  const [timeLeft, setTimeLeft] = useState(null);
+
   // Host search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -119,6 +122,19 @@ export default function HostPage() {
       setRoom(r);
       setNameInput(r.name);
       roomRef.current = r;
+
+      // Start countdown from room creation time
+      function updateCountdown() {
+        const expiresAt = new Date(r.created_at).getTime() + 24 * 60 * 60 * 1000;
+        const diff = expiresAt - Date.now();
+        if (diff <= 0) { setTimeLeft("Expired"); return; }
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        setTimeLeft(`${h}h ${m}m`);
+      }
+      updateCountdown();
+      const interval = setInterval(updateCountdown, 60000);
+      return () => clearInterval(interval);
       fetchTracks(r.id);
       channel = getSupabase()
         .channel(`room-${r.id}`)
@@ -530,6 +546,14 @@ export default function HostPage() {
               play a track → fullscreen → PiP button → swipe home → lock phone.
               The fullscreen step is required. Plug in a charger for long drives.
             </p>
+            {timeLeft && (
+              <p className="muted" style={{ fontSize: "0.88rem", margin: "10px 0 0" }}>
+                <strong style={{ color: timeLeft === "Expired" ? "var(--accent)" : "var(--text)" }}>
+                  Room closes in:
+                </strong>{" "}
+                <span className="mono">{timeLeft}</span>
+              </p>
+            )}
           </div>
         </div>
       </div>
