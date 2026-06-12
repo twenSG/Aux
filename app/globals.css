@@ -313,6 +313,22 @@ button {
   flex-wrap: wrap;
 }
 
+/* ---- Drag handle ---- */
+
+.drag-handle {
+  color: var(--muted);
+  cursor: grab;
+  font-size: 1.1rem;
+  padding: 0 4px;
+  flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 /* ---- Queue ---- */
 
 .queue {
