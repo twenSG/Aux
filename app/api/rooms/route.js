@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServiceSupabase, makeToken } from "@/lib/supabase";
+import { makeGuestToken } from "@/lib/words";
 import { createClient } from "@supabase/supabase-js";
 
 async function getUserFromRequest(request) {
@@ -25,7 +26,7 @@ export async function POST(request) {
     .from("rooms")
     .insert({
       name,
-      guest_token: makeToken(),
+      guest_token: makeGuestToken(),
       host_token: makeToken(),
       user_id: user?.id ?? null,
     })
