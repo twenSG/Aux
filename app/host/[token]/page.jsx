@@ -85,6 +85,7 @@ export default function HostPage() {
   const playerReadyRef = useRef(false);
   const advancingRef = useRef(false);
   const roomRef = useRef(null);
+  const countdownRef = useRef(null);
 
   const nowPlaying = tracks.find((t) => t.status === "playing") || null;
   const queue = tracks
@@ -133,8 +134,7 @@ export default function HostPage() {
         setTimeLeft(`${h}h ${m}m`);
       }
       updateCountdown();
-      const interval = setInterval(updateCountdown, 60000);
-      return () => clearInterval(interval);
+      countdownRef.current = setInterval(updateCountdown, 60000);
       fetchTracks(r.id);
       channel = getSupabase()
         .channel(`room-${r.id}`)
@@ -164,7 +164,10 @@ export default function HostPage() {
         )
         .subscribe();
     })();
-    return () => channel && getSupabase().removeChannel(channel);
+    return () => {
+      channel && getSupabase().removeChannel(channel);
+      clearInterval(countdownRef.current);
+    };
   }, [token, fetchTracks]);
 
   // Focus input when editing starts
