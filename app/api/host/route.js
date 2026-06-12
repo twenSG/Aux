@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServiceSupabase, makeToken } from "@/lib/supabase";
+import { makeGuestToken } from "@/lib/words";
 
 // All host actions, authenticated by the unguessable host token.
 // Actions: play_next | remove | regenerate_guest_token | add_track
@@ -72,7 +73,7 @@ export async function POST(request) {
   }
 
   if (action === "regenerate_guest_token") {
-    const guestToken = makeToken();
+    const guestToken = makeGuestToken();
     const { error } = await supabase
       .from("rooms")
       .update({ guest_token: guestToken })
