@@ -18,6 +18,10 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+export async function GET() {
+  return NextResponse.json({ ok: true, service: "Aux MCP", version: "1.0" });
+}
+
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const { guestToken, query } = body;
