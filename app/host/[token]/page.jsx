@@ -4,6 +4,54 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { getSupabase } from "@/lib/supabase";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+function SortableTrack({ track, onRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: track.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <li ref={setNodeRef} style={style} className="queue-item">
+      <span className="drag-handle" {...attributes} {...listeners} aria-label="Drag to reorder">
+        ⠿
+      </span>
+      {track.thumbnail && <img src={track.thumbnail} alt="" />}
+      <div className="qi-main">
+        <div className="qi-title">{track.title}</div>
+        <div className="qi-sub">
+          {track.artist}{track.duration ? ` · ${track.duration}` : ""} · {track.added_by}
+        </div>
+      </div>
+      <button
+        className="btn-quiet"
+        onClick={() => onRemove(track.id)}
+        aria-label={`Remove ${track.title}`}
+      >
+        ✕
+      </button>
+    </li>
+  );
+}
 
 export default function HostPage() {
   const { token } = useParams();
@@ -23,6 +71,12 @@ export default function HostPage() {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef(null);
+  const reorderDebounceRef = useRef(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+  );
 
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
@@ -32,10 +86,7 @@ export default function HostPage() {
   const nowPlaying = tracks.find((t) => t.status === "playing") || null;
   const queue = tracks
     .filter((t) => t.status === "queued")
-    .sort(
-      (a, b) =>
-        b.votes - a.votes || new Date(a.created_at) - new Date(b.created_at)
-    );
+    .sort((a, b) => a.position - b.position || new Date(a.created_at) - new Date(b.created_at));
 
   function showToast(msg) {
     setToast(msg);
@@ -240,14 +291,39 @@ export default function HostPage() {
   }
 
   async function removeTrack(trackId) {
-    // Optimistic update — remove immediately from local state
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     const data = await hostAction("remove", trackId);
     if (!data.ok) {
-      // Revert on failure
       if (roomRef.current) fetchTracks(roomRef.current.id);
       showToast("Couldn't remove that track.");
     }
+  }
+
+  function persistReorder(orderedIds) {
+    clearTimeout(reorderDebounceRef.current);
+    reorderDebounceRef.current = setTimeout(() => {
+      fetch("/api/tracks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, tokenType: "host", orderedIds }),
+      });
+    }, 500);
+  }
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setTracks((prev) => {
+      const queued = prev
+        .filter((t) => t.status === "queued")
+        .sort((a, b) => a.position - b.position || new Date(a.created_at) - new Date(b.created_at));
+      const others = prev.filter((t) => t.status !== "queued");
+      const oldIndex = queued.findIndex((t) => t.id === active.id);
+      const newIndex = queued.findIndex((t) => t.id === over.id);
+      const reordered = arrayMove(queued, oldIndex, newIndex).map((t, i) => ({ ...t, position: i }));
+      persistReorder(reordered.map((t) => t.id));
+      return [...others, ...reordered];
+    });
   }
 
   if (notFound) {
@@ -355,31 +431,15 @@ export default function HostPage() {
             {queue.length === 0 ? (
               <p className="empty">Nothing queued yet.</p>
             ) : (
-              <ul className="queue">
-                {queue.map((t) => (
-                  <li className="queue-item" key={t.id}>
-                    {t.thumbnail && <img src={t.thumbnail} alt="" />}
-                    <div className="qi-main">
-                      <div className="qi-title">{t.title}</div>
-                      <div className="qi-sub">
-                        {t.artist}
-                        {t.duration ? ` · ${t.duration}` : ""} · {t.added_by}
-                      </div>
-                    </div>
-                    <span className="vote" aria-label={`${t.votes} votes`}>
-                      <span className="arrow">▲</span>
-                      <span className="count">{t.votes}</span>
-                    </span>
-                    <button
-                      className="btn-quiet"
-                      onClick={() => removeTrack(t.id)}
-                      aria-label={`Remove ${t.title}`}
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                  <ul className="queue">
+                    {queue.map((t) => (
+                      <SortableTrack key={t.id} track={t} onRemove={removeTrack} />
+                    ))}
+                  </ul>
+                </SortableContext>
+              </DndContext>
             )}
           </div>
         </div>
